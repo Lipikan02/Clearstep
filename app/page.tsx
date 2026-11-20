@@ -25,7 +25,7 @@ import { useDevnetReceipt } from "@/lib/use-devnet-receipt";
 
 const DEMO_AMOUNT = "0.05";
 const RECONNECT_PHANTOM = "Phantom changed or disconnected. Reconnect to review a devnet transfer.";
-type HighlightTarget = "continue" | "cancel" | "fee" | null;
+type HighlightTarget = "continue" | "cancel" | "fee" | "connect" | null;
 type TextSize = "standard" | "large" | "extra-large";
 type ConnectedWallet = { provider: PhantomSolanaProvider; address: string };
 type TransferQuote = { version: number } & ({ transfer: PreparedTransfer } | { error: string });
@@ -95,6 +95,7 @@ export default function Home() {
   }));
   const abortListening = useRef<(() => void) | null>(null);
   const [listening, setListening] = useState(false);
+  const [lastTranscript, setLastTranscript] = useState("");
   const [autoReadback, setAutoReadback] = useState<{ version: number; kind: VoiceKind } | null>(null);
   const reviewFreshness = useRef({ version: 1, reviewedVersion: null as number | null });
 
@@ -188,7 +189,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!highlight) return;
-    const timer = window.setTimeout(() => setHighlight(null), 4200);
+    const timer = window.setTimeout(() => setHighlight(null), highlight.target === "connect" ? 12_000 : 4200);
     return () => window.clearTimeout(timer);
   }, [highlight]);
 
@@ -217,6 +218,22 @@ export default function Home() {
         signal,
       });
       if (!response.ok || !response.headers.get("content-type")?.startsWith("audio/")) {
+        let diagnostic = "Voice audio is unavailable.";
+        let diagnosticCode = "";
+        if (response.headers.get("content-type")?.includes("application/json")) {
+          try {
+            const body: unknown = await response.json();
+            if (body && typeof body === "object") {
+              if ("error" in body && typeof body.error === "string") diagnostic = body.error;
+              if ("diagnosticCode" in body && typeof body.diagnosticCode === "string") {
+                diagnosticCode = body.diagnosticCode;
+              }
+            }
+          } catch {
+            // Keep the safe fallback when the server error body is unavailable.
+          }
+        }
+        console.warn(`[voice] Audio request failed (${response.status})${diagnosticCode ? ` [${diagnosticCode}]` : ""}: ${diagnostic}`);
         throw new Error("Voice audio is unavailable.");
       }
       return response.blob();
@@ -339,6 +356,8 @@ export default function Home() {
     setMessage(
       target === "fee"
         ? `Network fee highlighted. ${displayedFee ? "The amount shown is an estimate." : quoteError || "error" in draft ? "The estimate is unavailable." : "The estimate is still being calculated."}`
+        : target === "connect"
+          ? "Connect Phantom is highlighted. Select it when you’re ready."
         : `${target === "cancel" ? "Cancel" : mode === "live" ? "Review in Phantom" : "Continue"} is highlighted. Use the review controls to choose an action.`,
     );
   }
@@ -390,6 +409,7 @@ export default function Home() {
       return;
     }
     if (!beginWalletOperation()) return;
+    setHighlight(null);
     clearVoice();
     try {
       await provider.connect();
@@ -496,9 +516,17 @@ export default function Home() {
       case "summary":
         void speak("summary");
         break;
+      case "connect":
+        void speak("connect");
+        break;
       default:
-        setMessage("I didn’t catch that. Try: repeat details, explain fee, show recipient, find Continue, or find Cancel.");
+        setMessage("I can help with the transaction details, fee, recipient, connecting Phantom, or finding a button. Try asking about one of those.");
     }
+  }
+
+  function startVoiceWelcome() {
+    showHighlight("connect");
+    void speak("welcome");
   }
 
   function explainFee() {
@@ -527,7 +555,7 @@ export default function Home() {
     const speechWindow = window as SpeechWindow;
     const RecognitionApi = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
     if (!RecognitionApi) {
-      setMessage("Voice commands are unavailable in this browser. Use the visible guidance buttons.");
+      setMessage("Voice questions are unavailable in this browser. Use the visible guidance buttons.");
       return;
     }
     let recognition: Recognition;
@@ -558,9 +586,11 @@ export default function Home() {
     recognition.onresult = (event) => {
       if (abortListening.current !== stopListening) return;
       const result = event.results[0]?.[0];
+      const transcript = result?.transcript?.trim() ?? "";
       setListening(false);
       detach();
-      runIntent(result?.transcript ?? "", result?.confidence);
+      setLastTranscript(transcript);
+      runIntent(transcript, result?.confidence);
     };
     recognition.onerror = () => {
       setListening(false);
@@ -573,6 +603,7 @@ export default function Home() {
       setMessage("I didn’t hear a command. Try again or use the visible guidance buttons.");
     };
     setListening(true);
+    setLastTranscript("");
     try {
       recognition.start();
     } catch {
@@ -616,15 +647,15 @@ export default function Home() {
 
       <div className="layout" id="main">
         <section className="intro" aria-labelledby="page-title">
-          <div className="eyebrow"><span className="eyebrow-line" /> TRANSACTION REVIEW</div>
-          <h1 id="page-title">Take a moment.<br /><span>Know what you’re signing.</span></h1>
+          <div className="eyebrow"><span className="eyebrow-line" /> VOICE-GUIDED TRANSFER REVIEW</div>
+          <h1 id="page-title">Welcome to<br /><span>Clearstep.</span></h1>
           <p className="intro-copy">
-            Clearstep walks through the details with you. You stay in control of every choice.
+            A voice-guided companion for Solana transfers. Understand the amount, recipient, and fee before you approve in Phantom.
           </p>
 
           <div className="trust-note">
             <span className="trust-icon" aria-hidden="true">i</span>
-            <p>{mode === "demo" ? <>This is a demo with sample details. <strong>No real transaction will be sent.</strong></> : <>Phantom signs the transfer. Clearstep submits it on <strong>Solana Devnet only.</strong></>}</p>
+            <p>{mode === "demo" ? <>Demo mode uses sample details. <strong>No transaction will be sent.</strong></> : <>Phantom signs the transfer. Clearstep submits it on <strong>Solana Devnet only.</strong></>}</p>
           </div>
 
           <div className="steps" aria-label="Transaction steps">
@@ -638,19 +669,24 @@ export default function Home() {
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5v17M5 10v4m14-4v4M8.5 7v10m7-10v10" /></svg>
             </div>
             <div className="access-copy">
-              <p className="access-title">Want a little guidance?</p>
-              <p>Ask to repeat details, explain the fee, or point out a control.</p>
+              <p className="access-title">{mode === "demo" ? "Your guide" : "Want a little guidance?"}</p>
+              <p>{mode === "demo" ? "Ask about the transfer, fee, recipient, or connecting Phantom." : "Ask about the transfer, fee, or recipient. Buttons are available too."}</p>
             </div>
             <div className="voice-controls">
-              <button className="voice-action" onClick={listen} disabled={listening || playbackState === "loading"} aria-label="Speak a guidance command">
-                <span aria-hidden="true">{listening ? "●" : "🎙"}</span> {listening ? "Listening…" : "Ask"}
+              {mode === "demo" && <button className="voice-action voice-read" onClick={startVoiceWelcome} disabled={busy || playbackState === "loading"}>Start voice guide</button>}
+              <button className="voice-action" onClick={listen} disabled={listening || playbackState === "loading"} aria-label="Ask a question by voice">
+                <span aria-hidden="true">{listening ? "●" : "🎙"}</span> {listening ? "Listening…" : "Ask by voice"}
               </button>
               <button className="voice-action voice-read" onClick={() => void speak()}>
                 Read details
               </button>
             </div>
           </section>
-          <p className="prototype-note">Voice commands are optional. If unavailable, use the guidance buttons below.</p>
+          <p className="voice-examples">
+            Try asking: “What am I sending?”, “Why is there a network fee?”, “What address am I sending to?”, or “How do I connect my Phantom wallet?”
+          </p>
+          {lastTranscript && <p className="heard-question" aria-live="polite"><strong>I heard:</strong> “{lastTranscript}”</p>}
+          <p className="prototype-note">Voice can explain details or highlight a button. It never approves a transfer.</p>
           <div className="display-settings" role="group" aria-label="Display settings">
             <label>
               Text size
@@ -678,8 +714,9 @@ export default function Home() {
           <div className="wallet-toolbar">
             {mode === "demo" ? (
               <>
-                <span>Try the sample flow, or connect Phantom for a devnet transfer.</span>
-                <button onClick={connectPhantom} disabled={busy}>{busy ? "Connecting…" : "Connect Phantom"}</button>
+                <span>Connect Phantom for a devnet transfer, or hear what connecting does.</span>
+                <button onClick={() => void speak("connect")} disabled={busy}>Hear connection steps</button>
+                <button className={highlight?.target === "connect" ? "button-highlight" : ""} onClick={connectPhantom} disabled={busy}>{busy ? "Connecting…" : "Connect Phantom"}</button>
               </>
             ) : (
               <>

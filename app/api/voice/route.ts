@@ -16,8 +16,11 @@ let inFlight = 0;
 
 class BodyTooLarge extends Error {}
 
-function voiceError(message: string, status: number, retryAfter?: number) {
-  return Response.json({ error: `${message} Captions are still available.` }, {
+function voiceError(message: string, status: number, retryAfter?: number, diagnosticCode?: string) {
+  return Response.json({
+    error: `${message} Captions are still available.`,
+    ...(process.env.NODE_ENV !== "production" && diagnosticCode ? { diagnosticCode } : {}),
+  }, {
     status,
     headers: {
       "Cache-Control": "no-store",
@@ -73,7 +76,7 @@ function toLamports(value: string) {
 function parseVoiceRequest(body: unknown) {
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 5) return null;
   const { kind, amount, recipientStart, recipientEnd, fee } = body as Record<string, unknown>;
-  if (kind !== "summary" && kind !== "fee" && kind !== "recipient") return null;
+  if (kind !== "summary" && kind !== "fee" && kind !== "recipient" && kind !== "connect" && kind !== "welcome") return null;
   if (typeof amount !== "string" || !/^(?:0|[1-9]\d{0,10})(?:\.\d{1,9})?$/.test(amount)) return null;
   const lamports = toLamports(amount);
   if (lamports === 0n || lamports > MAX_LAMPORTS) return null;
@@ -121,6 +124,8 @@ function hasCompleteMp3Frames(audio: Buffer) {
 }
 
 async function upstreamFailure(response: Response, signal: AbortSignal) {
+  // Log only the provider status, never the API key, response body, voice text, or wallet details.
+  console.warn("[voice] ElevenLabs rejected the TTS request", { status: response.status });
   if (response.status === 429) {
     discardBody(response);
     const retry = response.headers.get("retry-after") ?? "";
@@ -141,10 +146,12 @@ async function upstreamFailure(response: Response, signal: AbortSignal) {
   } else {
     discardBody(response);
   }
-  if (quotaExceeded) return voiceError("The voice service has reached its usage limit.", 503);
-  if ([401, 403, 404].includes(response.status)) return voiceError("Voice audio is unavailable for this deployment.", 503);
-  if (response.status === 503) return voiceError("The voice provider is temporarily unavailable.", 503, 5);
-  return voiceError("The voice provider could not generate audio.", 502);
+  if (quotaExceeded) return voiceError("The voice service has reached its usage limit.", 503, undefined, "elevenlabs_quota");
+  if ([401, 403, 404].includes(response.status)) {
+    return voiceError("Voice audio is unavailable for this deployment.", 503, undefined, `elevenlabs_http_${response.status}`);
+  }
+  if (response.status === 503) return voiceError("The voice provider is temporarily unavailable.", 503, 5, "elevenlabs_http_503");
+  return voiceError("The voice provider could not generate audio.", 502, undefined, `elevenlabs_http_${response.status}`);
 }
 
 export async function POST(request: Request) {
@@ -170,7 +177,12 @@ export async function POST(request: Request) {
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
   const voiceId = process.env.ELEVENLABS_VOICE_ID?.trim();
   if (!apiKey || !voiceId || !/^[A-Za-z0-9_-]{1,128}$/.test(voiceId)) {
-    return voiceError("Voice audio is unavailable for this deployment.", 503);
+    console.warn("[voice] ElevenLabs configuration is incomplete", {
+      apiKeyConfigured: Boolean(apiKey),
+      voiceIdConfigured: Boolean(voiceId),
+      voiceIdFormatValid: Boolean(voiceId && /^[A-Za-z0-9_-]{1,128}$/.test(voiceId)),
+    });
+    return voiceError("Voice audio is unavailable for this deployment.", 503, undefined, "configuration_incomplete");
   }
 
   const now = performance.now();
