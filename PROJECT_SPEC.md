@@ -119,6 +119,7 @@ The demo should show the user cancelling or returning to edit as a valid outcome
 - Never present address history, labels, simulation, or model output as proof of recipient identity or transaction safety.
 - Do not make investment recommendations or promise financial outcomes.
 - Use testnet/faucet funds for the hackathon demo; label the environment clearly.
+- The live flow verifies the pinned Solana Devnet RPC, prepares a transfer with a recent devnet blockhash, and requests a signature after an explicit click. Clearstep checks the signed message against the reviewed transaction and submits it through the verified RPC. Live submission requires Phantom sign-only support.
 - Use minimum necessary personal data. Do not retain voice recordings/transcripts by default unless required by the chosen ElevenLabs integration; disclose what is sent/stored and provide a clear reset/clear-history action.
 - Do not send sensitive wallet data to a model unless needed for the feature and disclosed. Prefer to pass only the minimum transaction fields needed for the response.
 - Avoid synthetic urgency, persuasion, or language that pressures the user to continue.

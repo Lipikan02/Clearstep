@@ -262,9 +262,9 @@ Use this section as the handoff when implementation begins. The implementing age
 - Show a clear network badge (`Solana Devnet`) whenever live mode is active.
 - Require a valid recipient and positive SOL amount; parse/convert using integer lamports to avoid floating-point transaction math.
 - Build the transfer from the exact review state shown to the user. If amount or recipient changes before signing, discard the prepared transaction and rebuild/review.
-- Ask Phantom to sign/send only after the user clicks the UI control.
+- Ask Phantom to sign through its injected sign-only API after the user clicks the UI control. Verify the devnet RPC genesis hash and the wallet's signed message before broadcasting through the pinned devnet endpoint. The injected provider's documented connection API exposes the account but gives Clearstep no active-cluster reading.
 - Wallet rejection returns to review with a neutral message. Network/API errors offer retry and demo fallback.
-- Show signature/link and distinguish submitted/pending/confirmed/failed/unknown. Do not say “complete” before confirmation.
+- Show the signature/link and distinguish awaiting approval, submitted, pending, confirmed, failed, expired, and unknown. Keep the latest signature and its blockhash expiry in the browser tab so the user can recheck before sending again.
 
 **Acceptance:** one small devnet transfer succeeds with Phantom; user can reject; app never claims success on rejection or RPC uncertainty; demo mode remains available.
 
@@ -339,7 +339,7 @@ The repository currently contains planning documents only. To prevent agents fro
 - Solana: Phantom's directly injected provider for this Phantom-only flow; use @solana/web3.js to construct a native SOL transfer and query devnet. Do not build a general wallet adapter.
 - Voice input: browser speech recognition, capability-checked at runtime, with visible controls as equivalent fallback.
 - Voice output: ElevenLabs TTS through one Next.js server route. The TTS request may contain only short text rendered from current review data and allowed templates. Keep the API key server-side.
-- Persistence: no database, account system, or transaction history.
+- Persistence: the latest devnet signature and expiry stay in session storage for same-tab status recovery. No database or account system is required.
 
 Suggested module map:
 

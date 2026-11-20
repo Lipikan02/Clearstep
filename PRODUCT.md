@@ -21,7 +21,7 @@
 
 Clearstep is a voice-guided wallet experience for people who want clearer help understanding and navigating a crypto transaction. The first prototype is scoped to a native SOL transfer on Solana devnet. Before a user signs, Clearstep reads back the amount, recipient, network, and estimated fee, and lets the user request a repeat, a plain-language fee explanation, or a control highlight.
 
-The voice companion guides and explains. The user reviews the information, chooses what to do, and authorizes the transaction through the wallet. Clearstep does not sign or submit transactions for the user.
+The voice companion guides and explains. The user reviews the information and authorizes the transfer in Phantom. Clearstep then broadcasts the signed transaction to the verified Solana Devnet RPC.
 
 ## What problem does it solve?
 
