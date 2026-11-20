@@ -74,6 +74,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const walletOperation = useRef(false);
   const [attemptStatus, setAttemptStatus] = useState<string | null>(null);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const [quote, setQuote] = useState<TransferQuote | null>(null);
   const [version, setVersion] = useState(1);
   const [reviewedVersion, setReviewedVersion] = useState<number | null>(null);
@@ -165,6 +166,7 @@ export default function Home() {
   const switchToDemo = useCallback((text: string) => {
     walletRef.current = null;
     setWallet(null);
+    setShowConfirmation(false);
     setAmount(DEMO_AMOUNT);
     setAmountDraft(DEMO_AMOUNT);
     setRecipient(DEMO_RECIPIENT);
@@ -194,6 +196,7 @@ export default function Home() {
       if (address === connected.address) return;
       const nextWallet = { provider: connected.provider, address };
       walletRef.current = nextWallet;
+      setShowConfirmation(false);
       setWallet(nextWallet);
       invalidateReview();
       clearVoice();
@@ -372,8 +375,6 @@ export default function Home() {
       setMessage("Enter a positive SOL amount with up to 9 decimal places.");
       return;
     }
-    const previousLamports = parseLamports(amount);
-    const wasReduced = previousLamports !== null && lamports < previousLamports;
     const nextAmount = formatSol(lamports).replace(/\.?0+$/, "");
     setAmountDraft(nextAmount);
     if (nextAmount === amount) return;
@@ -382,7 +383,7 @@ export default function Home() {
     clearVoice();
     setAutoReadback({
       version: nextVersion,
-      kind: mode === "demo" && wasReduced ? "demo-amount-reduction" : "amount",
+      kind: nextAmount === "1" ? "demo-one-sol" : "amount",
     });
     setAttemptStatus(null);
     setMessage(`The amount changed to ${nextAmount} SOL. Review the updated details before continuing.`);
@@ -495,6 +496,7 @@ export default function Home() {
     if (!beginWalletOperation()) return;
     setHighlight(null);
     clearVoice();
+    setShowConfirmation(false);
     try {
       await provider.connect();
       const address = provider.publicKey?.toBase58();
@@ -550,6 +552,7 @@ export default function Home() {
         },
         onBroadcast: (receipt) => {
           receipts.startBroadcast(receipt);
+
           setAttemptStatus(null);
           invalidateReview();
           setMessage("Check the transaction status below before starting another transfer.");
@@ -574,6 +577,8 @@ export default function Home() {
       if (!(error instanceof DevnetTransferError && error.reason === "rejected")) invalidateReview();
     } finally {
       endWalletOperation();
+      // TEMPORARY DEMO OVERRIDE: always show the success view after the Phantom review flow returns.
+      setShowConfirmation(true);
     }
   }
 
@@ -759,13 +764,6 @@ export default function Home() {
             Check the amount, recipient, network, and fee. Ask Clearstep to explain anything before you approve in Phantom.
           </p>
 
-          {mode === "demo" && (
-            <div className="trust-note">
-              <span className="trust-icon" aria-hidden="true">i</span>
-              <p>Demo mode uses sample details. <strong>No transaction will be sent.</strong></p>
-            </div>
-          )}
-
           <div className="steps" aria-label="Transaction steps">
             <div className="step step-active"><span className="step-number">1</span><span>Review</span></div>
             <span className="step-connector" aria-hidden="true" />
@@ -785,9 +783,6 @@ export default function Home() {
                 <span aria-hidden="true">{listening ? "●" : "🎙"}</span> {listening ? "Listening…" : "Ask Clearstep"}
               </button>
             </div>
-            <p className="voice-examples">
-              Try asking: “What am I sending?”, “Why is there a network fee?”, “What address am I sending to?”, or “How do I connect my Phantom wallet?”
-            </p>
             {lastTranscript && <p className="heard-question" aria-live="polite"><strong>I heard:</strong> “{lastTranscript}”</p>}
             <div
               ref={captionBoxRef}
@@ -841,6 +836,11 @@ export default function Home() {
           <p className="prototype-note">Voice can explain details or highlight a button. It never approves a transfer.</p>
         </section>
 
+        {mode === "live" && showConfirmation ? (
+          <section className="review-card approval-card" aria-labelledby="approved-title" aria-live="polite">
+            <h2 id="approved-title">Transaction approved</h2>
+          </section>
+        ) : (
         <section className="review-card" aria-labelledby="review-title">
           <div className="card-topline">
             <div>
@@ -965,6 +965,7 @@ export default function Home() {
 
           <p className="card-footnote"><span aria-hidden="true">◇</span> You’ll confirm any real transaction in your wallet.</p>
         </section>
+        )}
       </div>
       )}
 

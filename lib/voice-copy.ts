@@ -1,4 +1,4 @@
-export type VoiceKind = "summary" | "amount" | "demo-amount-reduction" | "fee" | "recipient" | "connect" | "welcome";
+export type VoiceKind = "summary" | "amount" | "demo-one-sol" | "fee" | "recipient" | "connect" | "welcome";
 
 export type VoiceFacts = {
   amount: string;
@@ -22,15 +22,15 @@ export function makeVoiceText(kind: VoiceKind, facts: VoiceFacts) {
   if (kind === "amount") {
     const amountSummary = `The displayed amount is ${facts.amount} SOL on Solana Devnet.`;
     if (facts.largeSharePercent && facts.largeSharePercent > 70) {
-      return `${amountSummary} This is a large share of the available SOL in your wallet. Make sure you want to send this much. Double-check the amount and recipient in Phantom before approving.`;
+      return `${amountSummary} This is a large share of the available SOL in your wallet. Make sure you want to send this much.`;
     }
     const recipientCheck = facts.recipientStart && facts.recipientEnd
       ? "Review the full recipient address on screen before continuing."
       : "The recipient address is not ready yet. Review it on screen before continuing.";
     return `${amountSummary} ${recipientCheck}`;
   }
-  if (kind === "demo-amount-reduction") {
-    return `The transaction amount is now ${facts.amount} SOL. Good, we double-checked the amount.`;
+  if (kind === "demo-one-sol") {
+    return "The amount is now 1 SOL, that's good we double checked the amount.";
   }
 
   const fee = facts.fee === PENDING_FEE

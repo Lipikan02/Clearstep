@@ -81,7 +81,7 @@ function parseVoiceRequest(body: unknown) {
   const { kind, amount, recipientStart, recipientEnd, fee, largeSharePercent } = body as Record<string, unknown>;
   if (keys.length === 5 && largeSharePercent !== undefined) return null;
   if (keys.length === 6 && (!Number.isInteger(largeSharePercent) || (largeSharePercent as number) < 71 || (largeSharePercent as number) > 100)) return null;
-  if (kind !== "summary" && kind !== "amount" && kind !== "demo-amount-reduction" && kind !== "fee" && kind !== "recipient" && kind !== "connect" && kind !== "welcome") return null;
+  if (kind !== "summary" && kind !== "amount" && kind !== "demo-one-sol" && kind !== "fee" && kind !== "recipient" && kind !== "connect" && kind !== "welcome") return null;
   if (typeof amount !== "string" || !/^(?:0|[1-9]\d{0,10})(?:\.\d{1,9})?$/.test(amount)) return null;
   const lamports = toLamports(amount);
   const amountIsUnused = kind === "welcome" || kind === "connect";
