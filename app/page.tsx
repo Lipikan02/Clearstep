@@ -5,7 +5,7 @@ import { PublicKey } from "@solana/web3.js";
 import type { PhantomSolanaProvider } from "@/types/phantom";
 import { DEMO_FEE, PENDING_FEE, UNAVAILABLE_FEE, makeVoiceText, type VoiceKind } from "@/lib/voice-copy";
 import { getVoiceIntent } from "@/lib/voice-intents";
-import { createVoicePlayback, type PlaybackState } from "@/lib/voice-playback";
+import { createVoicePlayback, type PlaybackState, type VoiceAlignment } from "@/lib/voice-playback";
 import {
   createDevnetConnection,
   DEMO_RECIPIENT,
@@ -82,6 +82,10 @@ export default function Home() {
   const [textSize, setTextSize] = useState<TextSize>("standard");
   const [highContrast, setHighContrast] = useState(false);
   const [captions, setCaptions] = useState("");
+  const [captionCharacter, setCaptionCharacter] = useState<number | null>(null);
+  const [captionFollow, setCaptionFollow] = useState(true);
+  const captionBoxRef = useRef<HTMLDivElement | null>(null);
+  const activeCaptionWordRef = useRef<HTMLSpanElement | null>(null);
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
   const [lastVoiceKind, setLastVoiceKind] = useState<VoiceKind | null>(null);
   const [playback] = useState(() => createVoicePlayback(setPlaybackState, (blob) => {
@@ -92,8 +96,11 @@ export default function Home() {
       URL.revokeObjectURL(url);
       throw error;
     }
-  }));
+  }, setCaptionCharacter));
   const abortListening = useRef<(() => void) | null>(null);
+  const listenRef = useRef<(() => void) | null>(null);
+  const autoListenAfterWelcome = useRef(false);
+  const assistantSectionRef = useRef<HTMLDivElement | null>(null);
   const [listening, setListening] = useState(false);
   const [lastTranscript, setLastTranscript] = useState("");
   const [autoReadback, setAutoReadback] = useState<{ version: number; kind: VoiceKind } | null>(null);
@@ -127,6 +134,7 @@ export default function Home() {
   }, []);
 
   const stopAudio = useCallback(() => {
+    autoListenAfterWelcome.current = false;
     setAutoReadback(null);
     playback.stop();
     abortListening.current?.();
@@ -203,12 +211,25 @@ export default function Home() {
       fee: mode === "demo" ? DEMO_FEE : feeEstimate ?? PENDING_FEE,
     };
   }, [amount, recipient, feeEstimate, mode]);
+  const captionSegments = useMemo(() => {
+    const segments: Array<{ text: string; start: number; end: number }> = [];
+    for (const match of captions.matchAll(/\S+|\s+/g)) {
+      const start = match.index ?? 0;
+      segments.push({ text: match[0], start, end: start + match[0].length });
+    }
+    return segments;
+  }, [captions]);
+  const activeCaptionStart = captionCharacter === null
+    ? null
+    : captionSegments.find((segment) => !/^\s+$/.test(segment.text) && captionCharacter >= segment.start && captionCharacter < segment.end)?.start ?? null;
 
   const speak = useCallback(async (kind: VoiceKind = "summary") => {
     abortListening.current?.();
     setListening(false);
     setAutoReadback(null);
-    setCaptions(makeVoiceText(kind, spokenFacts));
+    const captionText = makeVoiceText(kind, spokenFacts);
+    setCaptions(captionText);
+    setCaptionFollow(true);
     setLastVoiceKind(kind);
     await playback.start(async (signal) => {
       const response = await fetch("/api/voice", {
@@ -217,7 +238,7 @@ export default function Home() {
         body: JSON.stringify({ kind, ...spokenFacts }),
         signal,
       });
-      if (!response.ok || !response.headers.get("content-type")?.startsWith("audio/")) {
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
         let diagnostic = "Voice audio is unavailable.";
         let diagnosticCode = "";
         if (response.headers.get("content-type")?.includes("application/json")) {
@@ -236,9 +257,42 @@ export default function Home() {
         console.warn(`[voice] Audio request failed (${response.status})${diagnosticCode ? ` [${diagnosticCode}]` : ""}: ${diagnostic}`);
         throw new Error("Voice audio is unavailable.");
       }
-      return response.blob();
+      const body: unknown = await response.json();
+      if (!body || typeof body !== "object" || !("audioBase64" in body) || typeof body.audioBase64 !== "string") {
+        throw new Error("The voice response did not contain audio.");
+      }
+      const binary = atob(body.audioBase64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      let alignment: VoiceAlignment | null = null;
+      if ("alignment" in body && body.alignment && typeof body.alignment === "object") {
+        const value = body.alignment as Record<string, unknown>;
+        const characters = value.characters;
+        const starts = value.startTimesSeconds;
+        const ends = value.endTimesSeconds;
+        if (Array.isArray(characters) && Array.isArray(starts) && Array.isArray(ends) &&
+            characters.join("") === captionText && starts.length === characters.length && ends.length === characters.length &&
+            starts.every((time) => typeof time === "number" && Number.isFinite(time)) &&
+            ends.every((time, index) => typeof time === "number" && Number.isFinite(time) && time >= (starts[index] as number))) {
+          alignment = { characters: characters as string[], startTimesSeconds: starts as number[], endTimesSeconds: ends as number[] };
+        }
+      }
+      return { blob: new Blob([bytes.buffer as ArrayBuffer], { type: "audio/mpeg" }), alignment };
     });
   }, [playback, spokenFacts]);
+
+  useEffect(() => {
+    const box = captionBoxRef.current;
+    const word = activeCaptionWordRef.current;
+    if (!captionFollow || !box || !word) return;
+    const boxBounds = box.getBoundingClientRect();
+    const wordBounds = word.getBoundingClientRect();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (wordBounds.bottom > boxBounds.bottom) {
+      box.scrollBy({ top: wordBounds.bottom - boxBounds.bottom + 8, behavior: reducedMotion ? "auto" : "smooth" });
+    } else if (wordBounds.top < boxBounds.top) {
+      box.scrollBy({ top: wordBounds.top - boxBounds.top - 8, behavior: reducedMotion ? "auto" : "smooth" });
+    }
+  }, [activeCaptionStart, captionFollow]);
 
   useLayoutEffect(() => {
     const previous = previousVoiceDetails.current;
@@ -524,8 +578,12 @@ export default function Home() {
     }
   }
 
-  function startVoiceWelcome() {
-    showHighlight("connect");
+  function startAssistant() {
+    autoListenAfterWelcome.current = true;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    assistantSectionRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    if (mode === "demo") showHighlight("connect");
+    else setMessage("Your Phantom wallet is connected. Review the transfer details before continuing.");
     void speak("welcome");
   }
 
@@ -600,7 +658,7 @@ export default function Home() {
     recognition.onend = () => {
       setListening(false);
       detach();
-      setMessage("I didn’t hear a command. Try again or use the visible guidance buttons.");
+      setMessage("I didn’t hear a question. Try again or use the visible guidance buttons.");
     };
     setListening(true);
     setLastTranscript("");
@@ -612,6 +670,15 @@ export default function Home() {
       setMessage("Voice recognition could not start. Use the visible guidance buttons.");
     }
   }
+
+  listenRef.current = listen;
+
+  useEffect(() => {
+    if (!autoListenAfterWelcome.current || (playbackState !== "ended" && playbackState !== "error")) return;
+    autoListenAfterWelcome.current = false;
+    const timer = window.setTimeout(() => listenRef.current?.(), 250);
+    return () => window.clearTimeout(timer);
+  }, [playbackState]);
 
   const playbackMessage = {
     idle: "",
@@ -645,12 +712,23 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="layout" id="main">
+      <section className="welcome-splash" aria-labelledby="welcome-title">
+        <div className="welcome-content">
+          <p className="welcome-eyebrow">VOICE-GUIDED WALLET REVIEW</p>
+          <h1 id="welcome-title">Welcome to<br /><span>Clearstep.</span></h1>
+          <span className="welcome-rule" aria-hidden="true" />
+          <p className="welcome-copy">A voice-guided companion for Solana transfers. Understand the amount, recipient, and fee before you approve transactions.</p>
+          <button className="welcome-start" onClick={startAssistant}>Start voice assistant <span aria-hidden="true">↓</span></button>
+          <p className="welcome-consent">Clearstep will speak a welcome, then listen for one question. Your browser may ask for microphone access.</p>
+        </div>
+      </section>
+
+      <div className="layout" id="main" ref={assistantSectionRef}>
         <section className="intro" aria-labelledby="page-title">
-          <div className="eyebrow"><span className="eyebrow-line" /> VOICE-GUIDED TRANSFER REVIEW</div>
-          <h1 id="page-title">Welcome to<br /><span>Clearstep.</span></h1>
+          <div className="eyebrow"><span className="eyebrow-line" /> YOUR TRANSFER</div>
+          <h1 id="page-title">Review the details.<br /><span>Then decide.</span></h1>
           <p className="intro-copy">
-            A voice-guided companion for Solana transfers. Understand the amount, recipient, and fee before you approve in Phantom.
+            Check the amount, recipient, network, and fee. Ask Clearstep to explain anything before you approve in Phantom.
           </p>
 
           <div className="trust-note">
@@ -664,7 +742,7 @@ export default function Home() {
             <div className="step"><span className="step-number">2</span><span>Wallet confirmation</span></div>
           </div>
 
-          <section className="access-card" aria-label="Guidance controls">
+          <section className="access-card" aria-label="Your guide">
             <div className="access-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5v17M5 10v4m14-4v4M8.5 7v10m7-10v10" /></svg>
             </div>
@@ -673,7 +751,6 @@ export default function Home() {
               <p>{mode === "demo" ? "Ask about the transfer, fee, recipient, or connecting Phantom." : "Ask about the transfer, fee, or recipient. Buttons are available too."}</p>
             </div>
             <div className="voice-controls">
-              {mode === "demo" && <button className="voice-action voice-read" onClick={startVoiceWelcome} disabled={busy || playbackState === "loading"}>Start voice guide</button>}
               <button className="voice-action" onClick={listen} disabled={listening || playbackState === "loading"} aria-label="Ask a question by voice">
                 <span aria-hidden="true">{listening ? "●" : "🎙"}</span> {listening ? "Listening…" : "Ask by voice"}
               </button>
@@ -681,11 +758,59 @@ export default function Home() {
                 Read details
               </button>
             </div>
+            <p className="voice-examples">
+              Try asking: “What am I sending?”, “Why is there a network fee?”, “What address am I sending to?”, or “How do I connect my Phantom wallet?”
+            </p>
+            {lastTranscript && <p className="heard-question" aria-live="polite"><strong>I heard:</strong> “{lastTranscript}”</p>}
+            <div
+              ref={captionBoxRef}
+              className={captions ? "guide-caption" : "sr-only"}
+              role="region"
+              aria-label="Spoken explanation captions. Scroll to read at your own pace."
+              tabIndex={captions ? 0 : -1}
+              onWheel={() => setCaptionFollow(false)}
+              onTouchStart={() => setCaptionFollow(false)}
+              onPointerDown={() => setCaptionFollow(false)}
+              onKeyDown={(event) => {
+                if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End"].includes(event.key)) setCaptionFollow(false);
+              }}
+            >
+              {captionSegments.map((segment) => {
+                if (/^\s+$/.test(segment.text)) return <span key={segment.start}>{segment.text}</span>;
+                const active = segment.start === activeCaptionStart;
+                return <span key={segment.start} ref={active ? activeCaptionWordRef : null} className={active ? "spoken-caption-word" : undefined}>{segment.text}</span>;
+              })}
+            </div>
+            <span className="sr-only" aria-live="polite" aria-atomic="true">{captions}</span>
+            <span className={playbackMessage ? "playback-status" : "sr-only"} role="status">{playbackMessage}</span>
+            {(playbackState === "playing" || playbackState === "paused" || playbackState === "blocked" || playbackState === "error" || (lastVoiceKind && (playbackState === "ended" || playbackState === "idle"))) && (
+              <div className="guide-playback-controls">
+                {(playbackState === "playing" || playbackState === "paused" || playbackState === "blocked") && (
+                  <button onClick={playbackState === "playing" ? playback.pause : () => { setCaptionFollow(true); void playback.resume(); }}>
+                    {playbackState === "playing" ? "Pause" : playbackState === "blocked" ? "Play audio" : "Resume"}
+                  </button>
+                )}
+                {lastVoiceKind && (playbackState === "error" || playbackState === "idle") && (
+                  <button onClick={() => void speak(lastVoiceKind)}>{playbackState === "error" ? "Retry audio" : "Replay"}</button>
+                )}
+                {playbackState === "ended" && <button onClick={() => { setCaptionFollow(true); void playback.replay(); }}>Replay</button>}
+                {!captionFollow && (playbackState === "playing" || playbackState === "paused" || playbackState === "blocked") && (
+                  <button onClick={() => setCaptionFollow(true)}>Follow speech</button>
+                )}
+                {(playbackState === "playing" || playbackState === "paused" || playbackState === "blocked") && <button onClick={stopAudio}>Stop audio</button>}
+              </div>
+            )}
+            <details className="guide-more">
+              <summary>More guide actions</summary>
+              <div className="guide-action-buttons">
+                <button onClick={explainFee}>Explain fee</button>
+                <button onClick={showRecipient} aria-controls="recipient-address-panel">Show recipient</button>
+                <button onClick={() => runIntent("find continue")}>Find Continue</button>
+                <button onClick={() => showHighlight("cancel")}>Find Cancel</button>
+                {mode === "demo" && <button className="reset-button" onClick={resetDemo} disabled={busy}>Reset demo</button>}
+              </div>
+            </details>
           </section>
-          <p className="voice-examples">
-            Try asking: “What am I sending?”, “Why is there a network fee?”, “What address am I sending to?”, or “How do I connect my Phantom wallet?”
-          </p>
-          {lastTranscript && <p className="heard-question" aria-live="polite"><strong>I heard:</strong> “{lastTranscript}”</p>}
           <p className="prototype-note">Voice can explain details or highlight a button. It never approves a transfer.</p>
           <div className="display-settings" role="group" aria-label="Display settings">
             <label>
@@ -790,32 +915,6 @@ export default function Home() {
             ) : (
               <button className="button button-primary" onClick={reviewAgain} disabled={busy || !canReview}>I’ve reviewed these details <span aria-hidden="true">→</span></button>
             )}
-          </div>
-
-          <div className="demo-tools">
-            <span className="demo-tools-label">TRY THE WALKTHROUGH</span>
-            <div className="demo-tool-buttons">
-              <button onClick={explainFee}>Explain fee</button>
-              <button onClick={showRecipient} aria-controls="recipient-address-panel">Show recipient</button>
-              <button onClick={() => runIntent("find continue")}>Find Continue</button>
-              <button onClick={() => showHighlight("cancel")}>Find Cancel</button>
-              <button onClick={() => void speak("summary")}>Read details aloud</button>
-              <span className={captions ? "caption-copy" : "sr-only"} aria-live="polite" aria-atomic="true">{captions}</span>
-              <span className={playbackMessage ? "playback-status" : "sr-only"} role="status">{playbackMessage}</span>
-              {(playbackState === "playing" || playbackState === "paused" || playbackState === "blocked") && (
-                <button onClick={playbackState === "playing" ? playback.pause : () => void playback.resume()}>
-                  {playbackState === "playing" ? "Pause" : playbackState === "blocked" ? "Play audio" : "Resume"}
-                </button>
-              )}
-              {lastVoiceKind && (playbackState === "error" || playbackState === "idle") && (
-                <button onClick={() => void speak(lastVoiceKind)}>{playbackState === "error" ? "Retry audio" : "Replay"}</button>
-              )}
-              {(playbackState === "playing" || playbackState === "paused" || playbackState === "ended") && (
-                <button onClick={() => void playback.replay()}>Replay</button>
-              )}
-              {playbackState !== "idle" && playbackState !== "error" && <button onClick={stopAudio}>Stop audio</button>}
-              {mode === "demo" && <button className="reset-button" onClick={resetDemo} disabled={busy}>Reset demo</button>}
-            </div>
           </div>
 
           <p className="card-footnote"><span aria-hidden="true">◇</span> You’ll confirm any real transaction in your wallet.</p>

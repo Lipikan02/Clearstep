@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 
 const MAX_REQUEST_BYTES = 1024;
 const MAX_AUDIO_BYTES = 1024 * 1024;
+const MAX_PROVIDER_RESPONSE_BYTES = 2 * 1024 * 1024;
 const REQUESTS_PER_MINUTE = 48;
 const MAX_IN_FLIGHT = 2;
 const RATE_WINDOW_MS = 60_000;
@@ -123,6 +124,37 @@ function hasCompleteMp3Frames(audio: Buffer) {
   return frames >= 2;
 }
 
+function parseTimedAudio(body: unknown) {
+  if (!body || typeof body !== "object") return null;
+  const { audio_base64: encoded, alignment } = body as Record<string, unknown>;
+  if (typeof encoded !== "string" || encoded.length > Math.ceil(MAX_AUDIO_BYTES * 4 / 3) + 4 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) return null;
+  const audio = Buffer.from(encoded, "base64");
+  if (audio.length > MAX_AUDIO_BYTES || audio.toString("base64") !== encoded || !hasCompleteMp3Frames(audio)) return null;
+
+  let timing: { characters: string[]; startTimesSeconds: number[]; endTimesSeconds: number[] } | null = null;
+  if (alignment && typeof alignment === "object") {
+    const value = alignment as Record<string, unknown>;
+    const characters = value.characters;
+    const startTimes = value.character_start_times_seconds;
+    const endTimes = value.character_end_times_seconds;
+    if (Array.isArray(characters) && Array.isArray(startTimes) && Array.isArray(endTimes) &&
+        characters.length > 0 && characters.length <= 2048 &&
+        startTimes.length === characters.length && endTimes.length === characters.length &&
+        characters.every((char) => typeof char === "string" && char.length <= 8) &&
+        startTimes.every((time, index) => typeof time === "number" && Number.isFinite(time) && time >= 0 &&
+          (index === 0 || time >= (startTimes[index - 1] as number))) &&
+        endTimes.every((time, index) => typeof time === "number" && Number.isFinite(time) && time >= (startTimes[index] as number))) {
+      timing = {
+        characters: characters as string[],
+        startTimesSeconds: startTimes as number[],
+        endTimesSeconds: endTimes as number[],
+      };
+    }
+  }
+  return { audio, timing };
+}
+
 async function upstreamFailure(response: Response, signal: AbortSignal) {
   // Log only the provider status, never the API key, response body, voice text, or wallet details.
   console.warn("[voice] ElevenLabs rejected the TTS request", { status: response.status });
@@ -203,12 +235,12 @@ export async function POST(request: Request) {
   const signal = AbortSignal.any([request.signal, deadline]);
 
   try {
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=mp3_44100_128`, {
       method: "POST",
       headers: {
         "xi-api-key": apiKey,
         "Content-Type": "application/json",
-        Accept: "audio/mpeg",
+        Accept: "application/json",
       },
       body: JSON.stringify({
         text: makeVoiceText(input.kind, input.facts),
@@ -222,16 +254,26 @@ export async function POST(request: Request) {
 
     signal.throwIfAborted();
     if (!response.ok) return await upstreamFailure(response, signal);
-    if (response.status !== 200 || mediaType(response) !== "audio/mpeg") {
+    if (response.status !== 200 || mediaType(response) !== "application/json") {
       discardBody(response);
-      return voiceError("The voice provider returned an unexpected audio response.", 502);
+      return voiceError("The voice provider returned an unexpected timed-audio response.", 502);
     }
 
-    const audio = await readBoundedBody(response, MAX_AUDIO_BYTES, signal);
-    if (!hasCompleteMp3Frames(audio)) return voiceError("The voice provider returned incomplete or invalid audio.", 502);
-    return new Response(audio, {
+    let providerBody: unknown;
+    try {
+      providerBody = JSON.parse((await readBoundedBody(response, MAX_PROVIDER_RESPONSE_BYTES, signal)).toString("utf8"));
+    } catch (error) {
+      if (error instanceof BodyTooLarge) return voiceError("The voice provider returned too much audio data.", 502);
+      signal.throwIfAborted();
+      return voiceError("The voice provider returned invalid timed-audio data.", 502);
+    }
+    const timedAudio = parseTimedAudio(providerBody);
+    if (!timedAudio) return voiceError("The voice provider returned incomplete or invalid audio.", 502);
+    return Response.json({
+      audioBase64: timedAudio.audio.toString("base64"),
+      alignment: timedAudio.timing,
+    }, {
       headers: {
-        "Content-Type": "audio/mpeg",
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       },

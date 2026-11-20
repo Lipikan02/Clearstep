@@ -16,7 +16,9 @@ export function makeVoiceText(kind: VoiceKind, facts: VoiceFacts) {
     return "To connect Phantom, select Connect Phantom and wait for the wallet window to open. Unlock it if asked, check the site and account shown, then select Connect. This shares your public wallet address with Clearstep. It does not send SOL or approve a transaction. After connecting, switch Phantom to Solana Devnet. You can disconnect at any time by selecting Use demo.";
   }
   if (kind === "welcome") {
-    return "Welcome to Clearstep. I can explain the amount, recipient, and network fee, or guide you through connecting Phantom. Connecting shares your public wallet address; it does not send SOL or approve a transfer. To try a Solana Devnet transfer, select Connect Phantom when you're ready. The button is highlighted. You can ask me a question first, too.";
+    return facts.fee === DEMO_FEE
+      ? "Welcome to Clearstep. I can explain the amount, recipient, and network fee, or guide you through Phantom. Connecting shares your public wallet address; it does not send SOL or approve a transfer. To try a Solana Devnet transfer, select the highlighted Connect Phantom button when you're ready. Do you have a question? I'll listen for one now."
+      : "Welcome back to Clearstep. Your Phantom wallet is connected. I can explain the amount, recipient, and network fee for this Solana Devnet transfer. You stay in control of every choice, and any transfer still needs your approval in Phantom. Do you have a question? I'll listen for one now.";
   }
 
   const fee = facts.fee === PENDING_FEE
