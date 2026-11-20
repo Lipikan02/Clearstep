@@ -24,7 +24,8 @@ import {
 } from "@/lib/solana-devnet";
 import { useDevnetReceipt } from "@/lib/use-devnet-receipt";
 
-const DEMO_AMOUNT = "0.05";
+const DEMO_AMOUNT = "0";
+const DEFAULT_LIVE_RECIPIENT = "DA2bcvGSmq9E7EE9F149rcf2uts4j1DQW5AN3gRg8G2o";
 const RECONNECT_PHANTOM = "Phantom changed or disconnected. Reconnect to review a devnet transfer.";
 type HighlightTarget = "continue" | "cancel" | "fee" | "connect" | null;
 type ConnectedWallet = { provider: PhantomSolanaProvider; address: string };
@@ -315,7 +316,7 @@ export default function Home() {
     previousVoiceDetails.current = { amount, recipient, mode, feeEstimate };
     const feeChanged = mode === "live" && previous.mode === mode && previous.amount === amount &&
       previous.recipient === recipient && previous.feeEstimate !== feeEstimate;
-    if (feeChanged && (lastVoiceKind === "summary" || lastVoiceKind === "fee") &&
+    if (feeChanged && (lastVoiceKind === "summary" || lastVoiceKind === "amount" || lastVoiceKind === "fee") &&
         (playbackState === "loading" || playbackState === "playing" || playbackState === "blocked")) {
       setAutoReadback({ version, kind: lastVoiceKind });
     }
@@ -371,13 +372,18 @@ export default function Home() {
       setMessage("Enter a positive SOL amount with up to 9 decimal places.");
       return;
     }
+    const previousLamports = parseLamports(amount);
+    const wasReduced = previousLamports !== null && lamports < previousLamports;
     const nextAmount = formatSol(lamports).replace(/\.?0+$/, "");
     setAmountDraft(nextAmount);
     if (nextAmount === amount) return;
     setAmount(nextAmount);
     const nextVersion = invalidateReview();
     clearVoice();
-    setAutoReadback({ version: nextVersion, kind: "summary" });
+    setAutoReadback({
+      version: nextVersion,
+      kind: mode === "demo" && wasReduced ? "demo-amount-reduction" : "amount",
+    });
     setAttemptStatus(null);
     setMessage(`The amount changed to ${nextAmount} SOL. Review the updated details before continuing.`);
   }
@@ -461,7 +467,7 @@ export default function Home() {
 
   function resetDemo() {
     if (walletRef.current || walletOperation.current) return;
-    switchToDemo("Demo reset to 0.05 SOL. Review each detail before continuing.");
+    switchToDemo("Demo reset to 0 SOL. Enter a positive amount before continuing.");
   }
 
   function beginWalletOperation() {
@@ -499,7 +505,7 @@ export default function Home() {
       const connected = { provider, address };
       walletRef.current = connected;
       setWallet(connected);
-      setRecipient("");
+      setRecipient(DEFAULT_LIVE_RECIPIENT);
       setAddressVisible(true);
       setCopied(false);
       invalidateReview();
@@ -775,11 +781,8 @@ export default function Home() {
               <p>{mode === "demo" ? "Ask about the transfer, fee, recipient, or connecting Phantom." : "Ask about the transfer, fee, or recipient. Buttons are available too."}</p>
             </div>
             <div className="voice-controls">
-              <button className="voice-action" onClick={listen} disabled={listening || playbackState === "loading"} aria-label="Ask a question by voice">
-                <span aria-hidden="true">{listening ? "●" : "🎙"}</span> {listening ? "Listening…" : "Ask by voice"}
-              </button>
-              <button className="voice-action voice-read" onClick={() => void speak()}>
-                Read details
+              <button className="voice-action ask-clearstep" onClick={listen} disabled={listening || playbackState === "loading"} aria-label="Ask Clearstep a question by voice">
+                <span aria-hidden="true">{listening ? "●" : "🎙"}</span> {listening ? "Listening…" : "Ask Clearstep"}
               </button>
             </div>
             <p className="voice-examples">
@@ -924,7 +927,7 @@ export default function Home() {
 
           {largeSharePercent !== null && (
             <p className="risk-note" role="status">
-              <strong>Large transfer check:</strong> {amount} SOL is about {largeSharePercent}% of the latest available Devnet SOL balance. The network fee is extra. Double-check the amount, recipient, and fee in Phantom before approving. This is a size reminder, not a recommendation.
+              <strong>Large transfer check:</strong> This amount uses a large share of the available Devnet SOL balance. Make sure you want to send this much. The network fee is extra. Double-check the amount, recipient, and fee in Phantom before approving.
             </p>
           )}
 

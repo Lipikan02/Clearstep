@@ -61,11 +61,10 @@ h1 span { color:#4f60a9; }
 .access-copy p { margin:0;color:#53647b;font-size:0.8125rem;line-height:1.55; }
 .access-copy .access-title { margin-bottom:3px;color:#25364e;font-size:0.875rem;font-weight:700; }
 .voice-coming { flex:none;padding:6px 8px;border:1px solid #e6e7f7;border-radius:6px;color:#7175bb;background:#f8f8ff;font:500 0.75rem 'DM Mono',monospace;letter-spacing:.09em; }
-.voice-controls { display:flex;flex-wrap:wrap;gap:6px; }
-.voice-action { padding:8px 11px;border:1px solid #e4e8f0;border-radius:7px;background:#fff;color:#586a83;font-size:0.8125rem;font-weight:700; }
+.voice-controls { flex:1 0 100%;display:flex;gap:6px; }
+.voice-action { width:100%;min-height:52px;padding:12px 16px;border:1px solid #d9def8;border-radius:10px;background:#f0f1ff;color:#4d5fac;font-size:1rem;font-weight:700; }
 .voice-action:hover:not(:disabled) { border-color:#cbd3fa;color:#4d62c5; }
 .voice-action:disabled { cursor:wait;opacity:.65; }
-.voice-read { background:#f4f5ff;color:#5864b8;border-color:#e6e7f7; }
 .prototype-note { margin:9px 0 0 3px;color:#53647b;font-size:0.75rem; }
 .voice-examples { flex:1 0 100%;margin:4px 0 0;color:#53647b;font-size:0.75rem;line-height:1.6; }
 .heard-question { flex:1 0 100%;margin:4px 0 0;padding:8px 10px;border-left:2px solid #7685de;background:#f7f8ff;color:#263952;font-size:0.8125rem;line-height:1.5;overflow-wrap:anywhere; }
