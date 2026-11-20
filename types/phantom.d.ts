@@ -1,4 +1,4 @@
-import type { PublicKey, Transaction } from "@solana/web3.js";
+import type { VersionedTransaction } from "@solana/web3.js";
 
 declare global {
   interface Window {
@@ -8,20 +8,19 @@ declare global {
   }
 }
 
+type PhantomPublicKey = { toBase58(): string };
+
 export interface PhantomSolanaProvider {
   isPhantom?: boolean;
   isConnected: boolean;
-  publicKey: PublicKey | null;
-  connect(options?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: PublicKey }>;
+  publicKey: PhantomPublicKey | null;
+  connect(options?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: PhantomPublicKey }>;
   disconnect(): Promise<void>;
-  signAndSendTransaction(
-    transaction: Transaction,
-    options?: { preflightCommitment?: "processed" | "confirmed" | "finalized" },
-  ): Promise<{ signature: string }>;
+  signTransaction?(transaction: VersionedTransaction): Promise<VersionedTransaction | void>;
   on(event: "disconnect", callback: () => void): void;
   off(event: "disconnect", callback: () => void): void;
-  on(event: "accountChanged", callback: (publicKey: PublicKey | null) => void): void;
-  off(event: "accountChanged", callback: (publicKey: PublicKey | null) => void): void;
+  on(event: "accountChanged", callback: (publicKey: PhantomPublicKey | null) => void): void;
+  off(event: "accountChanged", callback: (publicKey: PhantomPublicKey | null) => void): void;
 }
 
 export {};
