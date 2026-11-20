@@ -14,6 +14,7 @@ import {
   hasSufficientFunds,
   isUnresolvedStatus,
   isWalletRejection,
+  parseLamports,
   parseRecipient,
   prepareDevnetTransfer,
   submitReviewedTransfer,
@@ -26,7 +27,6 @@ import { useDevnetReceipt } from "@/lib/use-devnet-receipt";
 const DEMO_AMOUNT = "0.05";
 const RECONNECT_PHANTOM = "Phantom changed or disconnected. Reconnect to review a devnet transfer.";
 type HighlightTarget = "continue" | "cancel" | "fee" | "connect" | null;
-type TextSize = "standard" | "large" | "extra-large";
 type ConnectedWallet = { provider: PhantomSolanaProvider; address: string };
 type TransferQuote = { version: number } & ({ transfer: PreparedTransfer } | { error: string });
 
@@ -61,7 +61,9 @@ function shortAddress(address: string) {
 }
 
 export default function Home() {
+  const [view, setView] = useState<"welcome" | "assistant">("welcome");
   const [amount, setAmount] = useState(DEMO_AMOUNT);
+  const [amountDraft, setAmountDraft] = useState(DEMO_AMOUNT);
   const [recipient, setRecipient] = useState(DEMO_RECIPIENT);
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
   const walletRef = useRef<ConnectedWallet | null>(null);
@@ -79,8 +81,6 @@ export default function Home() {
   const [message, setMessage] = useState("Review each detail before continuing.");
   const [copied, setCopied] = useState(false);
   const copyRequest = useRef(0);
-  const [textSize, setTextSize] = useState<TextSize>("standard");
-  const [highContrast, setHighContrast] = useState(false);
   const [captions, setCaptions] = useState("");
   const [captionCharacter, setCaptionCharacter] = useState<number | null>(null);
   const [captionFollow, setCaptionFollow] = useState(true);
@@ -100,20 +100,26 @@ export default function Home() {
   const abortListening = useRef<(() => void) | null>(null);
   const listenRef = useRef<(() => void) | null>(null);
   const autoListenAfterWelcome = useRef(false);
-  const assistantSectionRef = useRef<HTMLDivElement | null>(null);
   const [listening, setListening] = useState(false);
   const [lastTranscript, setLastTranscript] = useState("");
   const [autoReadback, setAutoReadback] = useState<{ version: number; kind: VoiceKind } | null>(null);
   const reviewFreshness = useRef({ version: 1, reviewedVersion: null as number | null });
 
   const draft = useMemo(() => validateDraft(amount, recipient, mode === "live"), [amount, recipient, mode]);
+  const amountDraftError = amountDraft === amount ? null : parseLamports(amountDraft) === null
+    ? "Enter a positive SOL amount with up to 9 decimal places."
+    : "Press Enter or leave the amount field to stage this value.";
   const currentQuote = quote?.version === version ? quote : null;
   const prepared = currentQuote && "transfer" in currentQuote ? currentQuote.transfer : null;
+  const largeSharePercent = amountDraftError === null && prepared && prepared.balance > 0n && prepared.lamports <= prepared.balance &&
+    prepared.lamports * 100n > prepared.balance * 70n
+    ? Number((prepared.lamports * 100n + prepared.balance - 1n) / prepared.balance)
+    : null;
   const quoteError = currentQuote && "error" in currentQuote ? currentQuote.error : null;
-  const reviewProblem = "error" in draft ? draft.error : quoteError ??
+  const reviewProblem = amountDraftError ?? ("error" in draft ? draft.error : quoteError ??
     (prepared && !hasSufficientFunds(prepared)
       ? `Insufficient devnet SOL for the amount and fee. Available balance: ${formatSol(prepared.balance)} SOL.`
-      : null);
+      : null));
   const feeEstimate = prepared
     ? `${formatSol(prepared.fee)} SOL (estimate)`
     : (quoteError || "error" in draft) ? UNAVAILABLE_FEE : null;
@@ -147,10 +153,19 @@ export default function Home() {
     setLastVoiceKind(null);
   }, [stopAudio]);
 
+  function returnToWelcome() {
+    clearVoice();
+    setLastTranscript("");
+    setHighlight(null);
+    setView("welcome");
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
   const switchToDemo = useCallback((text: string) => {
     walletRef.current = null;
     setWallet(null);
     setAmount(DEMO_AMOUNT);
+    setAmountDraft(DEMO_AMOUNT);
     setRecipient(DEMO_RECIPIENT);
     setAddressVisible(false);
     setCopied(false);
@@ -209,8 +224,9 @@ export default function Home() {
       recipientStart: address.slice(0, 6),
       recipientEnd: address.slice(-4),
       fee: mode === "demo" ? DEMO_FEE : feeEstimate ?? PENDING_FEE,
+      ...(largeSharePercent === null ? {} : { largeSharePercent }),
     };
-  }, [amount, recipient, feeEstimate, mode]);
+  }, [amount, recipient, feeEstimate, mode, largeSharePercent]);
   const captionSegments = useMemo(() => {
     const segments: Array<{ text: string; start: number; end: number }> = [];
     for (const match of captions.matchAll(/\S+|\s+/g)) {
@@ -320,11 +336,12 @@ export default function Home() {
       setAutoReadback(null);
       return;
     }
+    if (mode === "live" && !currentQuote) return;
     const timer = window.setTimeout(() => {
       if (reviewFreshness.current.version === autoReadback.version) void speak(autoReadback.kind);
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [autoReadback, version, speak]);
+  }, [autoReadback, version, speak, mode, currentQuote]);
 
   useEffect(() => {
     if (!wallet || "error" in draft) return;
@@ -348,7 +365,14 @@ export default function Home() {
     };
   }, [devnet, wallet, draft, version]);
 
-  function changeAmount(nextAmount: string) {
+  function stageAmount(value = amountDraft) {
+    const lamports = parseLamports(value);
+    if (lamports === null) {
+      setMessage("Enter a positive SOL amount with up to 9 decimal places.");
+      return;
+    }
+    const nextAmount = formatSol(lamports).replace(/\.?0+$/, "");
+    setAmountDraft(nextAmount);
     if (nextAmount === amount) return;
     setAmount(nextAmount);
     const nextVersion = invalidateReview();
@@ -475,7 +499,6 @@ export default function Home() {
       const connected = { provider, address };
       walletRef.current = connected;
       setWallet(connected);
-      setAmount(DEMO_AMOUNT);
       setRecipient("");
       setAddressVisible(true);
       setCopied(false);
@@ -580,8 +603,7 @@ export default function Home() {
 
   function startAssistant() {
     autoListenAfterWelcome.current = true;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    assistantSectionRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    setView("assistant");
     if (mode === "demo") showHighlight("connect");
     else setMessage("Your Phantom wallet is connected. Review the transfer details before continuing.");
     void speak("welcome");
@@ -691,13 +713,13 @@ export default function Home() {
   }[playbackState];
 
   return (
-    <main className="page-shell" data-text-size={textSize} data-high-contrast={highContrast}>
-      <a className="skip-link" href="#review-title">Skip to transaction review</a>
+    <main className="page-shell">
+      <a className="skip-link" href={view === "welcome" ? "#welcome-title" : "#review-title"}>Skip to main content</a>
       <div className="ambient ambient-one" aria-hidden="true" />
       <div className="ambient ambient-two" aria-hidden="true" />
 
       <header className="topbar">
-        <a className="brand" href="#main" aria-label="Clearstep home">
+        <button className="brand" type="button" onClick={returnToWelcome} aria-label="Return to Clearstep welcome">
           <span className="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 32 32" fill="none">
               <path d="M16 3.5 27 9.75v12.5L16 28.5 5 22.25V9.75L16 3.5Z" />
@@ -705,13 +727,14 @@ export default function Home() {
             </svg>
           </span>
           <span>clearstep</span>
-        </a>
+        </button>
         <div className="header-right">
           <span className="network-pill"><span className="status-dot" /> Solana Devnet</span>
           <span className={mode === "demo" ? "demo-pill" : "live-pill"}>{mode === "demo" ? "DEMO MODE" : "LIVE WALLET"}</span>
         </div>
       </header>
 
+      {view === "welcome" ? (
       <section className="welcome-splash" aria-labelledby="welcome-title">
         <div className="welcome-content">
           <p className="welcome-eyebrow">VOICE-GUIDED WALLET REVIEW</p>
@@ -719,11 +742,10 @@ export default function Home() {
           <span className="welcome-rule" aria-hidden="true" />
           <p className="welcome-copy">A voice-guided companion for Solana transfers. Understand the amount, recipient, and fee before you approve transactions.</p>
           <button className="welcome-start" onClick={startAssistant}>Start voice assistant <span aria-hidden="true">↓</span></button>
-          <p className="welcome-consent">Clearstep will speak a welcome, then listen for one question. Your browser may ask for microphone access.</p>
         </div>
       </section>
-
-      <div className="layout" id="main" ref={assistantSectionRef}>
+      ) : (
+      <div className="layout assistant-enter" id="main">
         <section className="intro" aria-labelledby="page-title">
           <div className="eyebrow"><span className="eyebrow-line" /> YOUR TRANSFER</div>
           <h1 id="page-title">Review the details.<br /><span>Then decide.</span></h1>
@@ -731,10 +753,12 @@ export default function Home() {
             Check the amount, recipient, network, and fee. Ask Clearstep to explain anything before you approve in Phantom.
           </p>
 
-          <div className="trust-note">
-            <span className="trust-icon" aria-hidden="true">i</span>
-            <p>{mode === "demo" ? <>Demo mode uses sample details. <strong>No transaction will be sent.</strong></> : <>Phantom signs the transfer. Clearstep submits it on <strong>Solana Devnet only.</strong></>}</p>
-          </div>
+          {mode === "demo" && (
+            <div className="trust-note">
+              <span className="trust-icon" aria-hidden="true">i</span>
+              <p>Demo mode uses sample details. <strong>No transaction will be sent.</strong></p>
+            </div>
+          )}
 
           <div className="steps" aria-label="Transaction steps">
             <div className="step step-active"><span className="step-number">1</span><span>Review</span></div>
@@ -812,17 +836,6 @@ export default function Home() {
             </details>
           </section>
           <p className="prototype-note">Voice can explain details or highlight a button. It never approves a transfer.</p>
-          <div className="display-settings" role="group" aria-label="Display settings">
-            <label>
-              Text size
-              <select value={textSize} onChange={(event) => setTextSize(event.target.value as TextSize)}>
-                <option value="standard">Standard</option>
-                <option value="large">Large</option>
-                <option value="extra-large">Extra large</option>
-              </select>
-            </label>
-            <button type="button" aria-pressed={highContrast} onClick={() => setHighContrast((enabled) => !enabled)}>High contrast</button>
-          </div>
         </section>
 
         <section className="review-card" aria-labelledby="review-title">
@@ -852,13 +865,31 @@ export default function Home() {
           </div>
 
           <div className="amount-block">
-            <div className="amount-label"><span>AMOUNT</span><span className="token-chip"><span className="sol-mark">◎</span> SOL</span></div>
-            <div className="amount-value"><span>{amount}</span><span className="amount-unit">SOL</span></div>
-            <div className="amount-actions" role="group" aria-label="Transfer amount">
-              <button className={amount === "0.05" ? "amount-choice selected" : "amount-choice"} onClick={() => changeAmount("0.05")} aria-pressed={amount === "0.05"} disabled={busy}>0.05 SOL</button>
-              <button className={amount === "0.5" ? "amount-choice selected" : "amount-choice"} onClick={() => changeAmount("0.5")} aria-pressed={amount === "0.5"} disabled={busy}>0.5 SOL</button>
-              <span className="scenario-hint">Try changing the amount</span>
+            <label className="amount-label" htmlFor="transfer-amount"><span>AMOUNT</span><span className="token-chip"><span className="sol-mark">◎</span> SOL</span></label>
+            <div className="amount-value">
+              <input
+                id="transfer-amount"
+                className="amount-input"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                spellCheck={false}
+                value={amountDraft}
+                onChange={(event) => setAmountDraft(event.target.value)}
+                onBlur={() => stageAmount()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    stageAmount();
+                  }
+                }}
+                aria-invalid={amountDraftError !== null && parseLamports(amountDraft) === null}
+                aria-describedby="amount-help"
+                disabled={busy}
+              />
+              <span className="amount-unit">SOL</span>
             </div>
+            <p className="amount-hint" id="amount-help">Enter any amount up to 9 decimal places. Press Enter or leave the field to stage it.</p>
           </div>
 
           <div className="details-list">
@@ -879,11 +910,23 @@ export default function Home() {
               <div className="detail-label"><span className="detail-icon network-icon" aria-hidden="true">⌁</span><span>Network</span></div>
               <div className="detail-value">Solana Devnet</div>
             </div>
+            {mode === "live" && prepared && (
+              <div className="detail-row">
+                <div className="detail-label"><span className="detail-icon network-icon" aria-hidden="true">◎</span><span>Available Devnet SOL</span></div>
+                <div className="detail-value">{formatSol(prepared.balance)} SOL</div>
+              </div>
+            )}
             <div className={highlight?.target === "fee" ? "detail-row fee-row highlighted" : "detail-row fee-row"}>
               <div className="detail-label"><span className="detail-icon fee-icon" aria-hidden="true">◷</span><span>Estimated network fee</span></div>
               <div className="detail-value">{displayedFee ?? (feeEstimate === UNAVAILABLE_FEE ? "Unavailable" : "Checking…")} {displayedFee && <span className="estimate-label">Estimate</span>}</div>
             </div>
           </div>
+
+          {largeSharePercent !== null && (
+            <p className="risk-note" role="status">
+              <strong>Large transfer check:</strong> {amount} SOL is about {largeSharePercent}% of the latest available Devnet SOL balance. The network fee is extra. Double-check the amount, recipient, and fee in Phantom before approving. This is a size reminder, not a recommendation.
+            </p>
+          )}
 
           <div className={isReviewed ? "review-status" : "review-status status-attention"} role="status" aria-atomic="true">
             <span className="status-check" aria-hidden="true">{isReviewed ? "✓" : "!"}</span>
@@ -920,6 +963,7 @@ export default function Home() {
           <p className="card-footnote"><span aria-hidden="true">◇</span> You’ll confirm any real transaction in your wallet.</p>
         </section>
       </div>
+      )}
 
       <footer className="footer">
         <span>Clearstep <span className="footer-separator">/</span> Understand before you sign.</span>

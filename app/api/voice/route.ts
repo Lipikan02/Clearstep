@@ -75,8 +75,12 @@ function toLamports(value: string) {
 }
 
 function parseVoiceRequest(body: unknown) {
-  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 5) return null;
-  const { kind, amount, recipientStart, recipientEnd, fee } = body as Record<string, unknown>;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const keys = Object.keys(body);
+  if (keys.length !== 5 && keys.length !== 6) return null;
+  const { kind, amount, recipientStart, recipientEnd, fee, largeSharePercent } = body as Record<string, unknown>;
+  if (keys.length === 5 && largeSharePercent !== undefined) return null;
+  if (keys.length === 6 && (!Number.isInteger(largeSharePercent) || (largeSharePercent as number) < 71 || (largeSharePercent as number) > 100)) return null;
   if (kind !== "summary" && kind !== "fee" && kind !== "recipient" && kind !== "connect" && kind !== "welcome") return null;
   if (typeof amount !== "string" || !/^(?:0|[1-9]\d{0,10})(?:\.\d{1,9})?$/.test(amount)) return null;
   const lamports = toLamports(amount);
@@ -92,7 +96,7 @@ function parseVoiceRequest(body: unknown) {
        (!/^(?:0|[1-9]\d{0,10})\.\d{9} SOL \(estimate\)$/.test(fee) ||
         toLamports(fee.split(" ", 1)[0]) > MAX_LAMPORTS))) return null;
 
-  return { kind, facts: { amount, recipientStart, recipientEnd, fee } } as const;
+  return { kind, facts: { amount, recipientStart, recipientEnd, fee, ...(largeSharePercent === undefined ? {} : { largeSharePercent: largeSharePercent as number }) } } as const;
 }
 
 const MPEG1_LAYER3_BITRATES = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];

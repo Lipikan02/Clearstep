@@ -5,6 +5,7 @@ export type VoiceFacts = {
   recipientStart: string;
   recipientEnd: string;
   fee: string;
+  largeSharePercent?: number;
 };
 
 export const DEMO_FEE = "about 0.000005 SOL";
@@ -16,9 +17,7 @@ export function makeVoiceText(kind: VoiceKind, facts: VoiceFacts) {
     return "To connect Phantom, select Connect Phantom and wait for the wallet window to open. Unlock it if asked, check the site and account shown, then select Connect. This shares your public wallet address with Clearstep. It does not send SOL or approve a transaction. After connecting, switch Phantom to Solana Devnet. You can disconnect at any time by selecting Use demo.";
   }
   if (kind === "welcome") {
-    return facts.fee === DEMO_FEE
-      ? "Welcome to Clearstep. I can explain the amount, recipient, and network fee, or guide you through Phantom. Connecting shares your public wallet address; it does not send SOL or approve a transfer. To try a Solana Devnet transfer, select the highlighted Connect Phantom button when you're ready. Do you have a question? I'll listen for one now."
-      : "Welcome back to Clearstep. Your Phantom wallet is connected. I can explain the amount, recipient, and network fee for this Solana Devnet transfer. You stay in control of every choice, and any transfer still needs your approval in Phantom. Do you have a question? I'll listen for one now.";
+    return "Welcome to Clearstep. I can explain the amount, recipient, and network fee. Connecting shares your public wallet address; it does not send SOL or approve a transfer. Do you have any questions about the transaction?";
   }
 
   const fee = facts.fee === PENDING_FEE
@@ -34,5 +33,8 @@ export function makeVoiceText(kind: VoiceKind, facts: VoiceFacts) {
 
   if (kind === "fee") return fee;
   if (kind === "recipient") return recipient;
-  return `The displayed amount is ${facts.amount} SOL on Solana Devnet. ${recipient} ${fee}`;
+  const sizeCheck = facts.largeSharePercent && facts.largeSharePercent > 70
+    ? `Safety check: this staged transfer is about ${facts.largeSharePercent} percent of the current Devnet SOL balance Clearstep can see. The network fee is extra, and the balance can change before you approve. Double-check the amount, recipient, and fee in Phantom. This check only compares the transfer amount with this wallet's current Devnet SOL balance; it does not decide whether the transfer is right for you. `
+    : "";
+  return `${sizeCheck}The displayed amount is ${facts.amount} SOL on Solana Devnet. ${recipient} ${fee}`;
 }
