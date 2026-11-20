@@ -14,7 +14,7 @@ Use the [submission checklist](DEMO_CHECKLIST.md) to collect the team roster, pu
 
 Clearstep is a transaction review companion for a native SOL transfer. The interface presents the amount, recipient, network, and estimated fee, with an option to reveal or copy the full address. The voice guide reads the review aloud with matching captions and can explain the fee, reveal the recipient, or highlight a control. Users can work with visible buttons, keyboard navigation, adjustable text size, and high contrast.
 
-**Demo mode** opens with a simulated 0.05 SOL transfer, sample recipient, and sample fee. Changing the preset to 0.5 SOL clears the earlier acknowledgement and triggers a new read-back. Cancel and Reset let someone run the same walkthrough again. This flow creates no on-chain transaction.
+**Demo mode** opens at 0 SOL with a sample recipient and fee. The user enters 14 SOL, then manually changes the amount to 1 SOL. The change clears the earlier acknowledgement and prompts a fresh review. Cancel and Reset let someone run the walkthrough again. This flow creates no on-chain transaction.
 
 **Live wallet mode** prepares a real native SOL transfer on Solana Devnet. The user acknowledges the review, clicks **Review in Phantom**, and decides whether to approve in the extension. Clearstep verifies the signed message, broadcasts it through the verified devnet RPC, and checks the signature for confirmation. The flow has been exercised with mocked Phantom and RPC. A funded-wallet transfer with a devnet Explorer receipt remains unverified.
 
@@ -31,7 +31,7 @@ A crypto transfer screen can make it hard to tell which number is the amount, wh
 
 ## What makes it unique?
 
-The voice guide is part of the review flow. A user can hear the fee, locate Cancel, see a small amount become ten times larger, and hear the new amount in the same walkthrough. The earlier acknowledgement belongs to the earlier transaction details, so the change brings the user back to review. The guide can explain or highlight, while transaction approval remains an explicit decision in Phantom.
+The voice guide is part of the review flow. A user can hear the fee, locate Cancel, compare a manually entered 14 SOL amount with 1 SOL, and hear the new amount in the same walkthrough. The earlier acknowledgement belongs to the earlier transaction details, so the change brings the user back to review. The guide can explain or highlight, while transaction approval remains an explicit decision in Phantom.
 
 ## What would you build next?
 

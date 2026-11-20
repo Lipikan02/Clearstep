@@ -1,8 +1,15 @@
 # Clearstep
 
-Clearstep is a voice-guided transaction review app. It gives people time to understand the amount, recipient, network, and estimated fee of a SOL transfer before they decide whether to continue. It reads the details aloud with matching captions, explains the fee, and points to controls on request. If the amount or recipient changes, Clearstep clears the old acknowledgement so the user can review the new details.
+### Clearstep's intended entries
 
-The app opens in **Demo mode** with a simulated 0.05 SOL transfer. **Live wallet** mode can prepare a native SOL transfer on Solana Devnet using Phantom. See the [verification and submission checklist](DEMO_CHECKLIST.md) for the current evidence for each mode.
+- **Main track:** Consumer Applications. The guide requires a working, user-facing frontend and an interaction with a blockchain.
+- **Chain award:** Best use of Solana. This is one optional chain award; a project cannot enter both Solana and Arc.
+- **Bounty:** ElevenLabs. The guide requires ElevenLabs API/SDK use to be central to the project, and the demo video must show that integration working with audio.
+- A submission may enter multiple qualifying bounties, but must choose exactly one main track.
+
+Clearstep is a voice assistant for reviewing SOL transfers. It helps people understand the amount, recipient, network, and estimated fee before they decide whether to continue. Users can ask questions such as why a network fee is charged or how to connect Phantom; Clearstep answers with spoken guidance and matching captions, and can point to controls on request. If the amount or recipient changes, Clearstep clears the old acknowledgement so the user can review the new details.
+
+The app opens in **Demo mode** with the amount set to 0 SOL; enter an amount directly in the amount field. **Live wallet** mode can prepare a native SOL transfer on Solana Devnet using Phantom. See the [verification and submission checklist](DEMO_CHECKLIST.md) for the current evidence for each mode.
 
 ## Run locally
 
@@ -25,22 +32,6 @@ cp -n .env.example .env.local
 | `ELEVENLABS_VOICE_ID` | ID of the ElevenLabs voice the server should use. |
 
 Set the values in `.env.local` and restart the server. Keep the file out of source control and use the same variable names in the deployment's server environment. With either value missing, captions and visible guidance still work. The devnet RPC URL is fixed in the app and requires no RPC key or extra environment variable.
-
-## Rehearse the demo
-
-1. Open the app in **Demo mode**. Use **View address** to inspect the recipient and **Read details** to hear the amount, address fragments, network, and fee. The sample fee is labeled **Estimate**.
-2. Select **I’ve reviewed these details**. Use **Explain fee**, then **Find Continue** or **Find Cancel**. The highlight fades and leaves the choice to you.
-3. Select **0.5 SOL**. The old acknowledgement clears, Continue is replaced by the review acknowledgement, and the new details are read back. Use **Read details aloud** if you want to repeat them.
-4. Choose **Cancel**, then **Reset demo**. Reset restores 0.05 SOL and clears the walkthrough state. **Text size** and **High contrast** remain available. The simulated walkthrough works without Phantom or microphone access.
-
-Optional spoken commands include “Repeat the details,” “Explain the fee,” “Show me the recipient,” “Where is Continue?”, “Where is Cancel?”, and “Stop audio.” The same guidance is available through the on-screen controls. See the [timed demo script](DEMO_SCRIPT.md).
-
-## Use Phantom on Solana Devnet
-
-1. Open the Phantom desktop extension and select your avatar. Under **Settings → Developer Settings**, enable **Testnet Mode** and choose **Solana Devnet**. For a recording on localhost, leave **Auto-Confirm on localhost** off so the approval prompt is visible. [Phantom testnet setup](https://help.phantom.com/articles/view-testnets-in-phantom-5997313271699) · [Phantom developer settings](https://help.phantom.com/articles/28951369255699)
-2. Fund a test wallet with enough devnet SOL for a 0.05 SOL transfer plus the fee. Copy a separate team-controlled Solana public address for the recipient. [Solana Devnet Faucet](https://faucet.solana.com/)
-3. Click **Connect Phantom** in Clearstep. Enter the recipient, choose **0.05 SOL**, wait for the fee estimate, and acknowledge the review. Click **Review in Phantom**. Compare the amount and recipient in the approval screen. Reject the request for a dry run.
-4. For a team-approved test transfer, approve in Phantom and wait for **Confirmed on Solana Devnet**. Open **View on Explorer** and verify the status, amount, recipient, and `cluster=devnet` on the link. If confirmation is uncertain, use **Recheck status** with the existing signature before trying another transfer.
 
 ## Technology and architecture
 
@@ -91,7 +82,7 @@ Allow at least 25 seconds of server execution time for the request-body and upst
 
 ## Scope and troubleshooting
 
-- The live scope is a single native SOL transfer on devnet, with two amount presets and the Phantom desktop extension. Mainnet, SPL tokens, other wallets or chains, custom programs, transaction history, and speech speed controls are outside the current implementation.
+- The live scope is a single native SOL transfer on devnet with manually entered amounts and the Phantom desktop extension. Mainnet, SPL tokens, other wallets or chains, custom programs, transaction history, and speech speed controls are outside the current implementation.
 - Voice explains fields and highlights controls. A user approves signing in Phantom. A syntactically valid address is simply a destination, and the review provides no recipient identity or risk assessment.
 - The live path requires a top-level HTTPS or localhost page, modern browser APIs including Web Crypto Ed25519, an extension with sign-only support, and access to the shared devnet RPC. Speech recognition and autoplay depend on browser settings. [Phantom provider detection](https://docs.phantom.com/solana/detecting-the-provider)
 
@@ -116,6 +107,5 @@ For the optional browser suite, set `CLEARSTEP_CHROME_PATH` to a local Chrome or
 ## Submission files
 
 - [Product description and Devpost answers](PRODUCT.md)
-- [Timed demo script](DEMO_SCRIPT.md)
 - [Submission checklist and feature audit](DEMO_CHECKLIST.md)
 - [Project spec](PROJECT_SPEC.md) and [implementation plan](IMPLEMENTATION.md)
